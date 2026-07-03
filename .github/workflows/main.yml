@@ -30,43 +30,6 @@ jobs:
           Set-ItemProperty -Path $RegistryPath -Name "AppsUseLightTheme" -Value 1 -Force
           Set-ItemProperty -Path $RegistryPath -Name "SystemUsesLightTheme" -Value 1 -Force
 
-      - name: Mengunduh dan Memasang Custom Wallpaper
-        shell: powershell
-        run: |
-          # Membuat folder penyimpanan jika belum ada
-          $WallpaperFolder = "C:\Wallpapers"
-          if (-not (Test-Path $WallpaperFolder)) { New-Item -ItemType Directory -Path $WallpaperFolder }
-          
-          # Link direct download gambar dari Wallhaven ID 1pk58v
-          $WallpaperUrl = "https://w.wallhaven.cc/full/1p/wallhaven-1pk58v.jpg"
-          $WallpaperPath = "$WallpaperFolder\vps_wallpaper.jpg"
-          
-          # Mengunduh Gambar
-          Invoke-WebRequest -Uri $WallpaperUrl -OutFile $WallpaperPath
-          
-          # Menerapkan Wallpaper via Registry untuk Default User dan System Profile
-          $Paths = @(
-              "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\Background",
-              "HKU:\.DEFAULT\Control Panel\Desktop"
-          )
-          foreach ($p in $Paths) {
-              if (-not (Test-Path $p)) { New-Item -Path $p -Force }
-          }
-          
-          Set-ItemProperty -Path "HKU:\.DEFAULT\Control Panel\Desktop" -Name "Wallpaper" -Value $WallpaperPath -Force
-          
-          # Menerapkan kode refresh agar wallpaper langsung berubah saat user login
-          $CsharpCode = @'
-          using System;
-          using System.Runtime.InteropServices;
-          public class Wallpaper {
-              [DllImport("user32.dll", CharSet = CharSet.Auto)]
-              public static extern int SystemParametersInfo(int uAction, int uParam, string lvParam, int fuWinIni);
-          }
-          '@
-          Add-Type -TypeDefinition $CsharpCode
-          [Wallpaper]::SystemParametersInfo(20, 0, $WallpaperPath, 3)
-
       - name: Mengunduh dan Menginstal Tailscale
         shell: powershell
         run: |
@@ -76,21 +39,31 @@ jobs:
       - name: Establish Tailscale Connection
         shell: powershell
         run: |
-          # Bring up Tailscale dengan nama host kustom VPS2022
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname="VPS2022-$env:GITHUB_RUN_ID" --unattended
+          # Menjalankan Tailscale up tanpa authkey. 
+          # Tailscale akan memunculkan URL Login di log GitHub Actions, silakan klik URL tersebut untuk otentikasi.
+          Start-Process -FilePath "$env:ProgramFiles\Tailscale\tailscale.exe" -ArgumentList "up --hostname=VPS2022-$env:GITHUB_RUN_ID --unattended"
           
-          # Wait for Tailscale to assign an IP
+          Write-Host "==========================================================================" -ForegroundColor Yellow
+          Write-Host "PERHATIAN: Silakan cek log di atas atau di bawah untuk menemukan URL login Tailscale." -ForegroundColor Yellow
+          Write-Host "Klik link tersebut dan masuk ke akun Tailscale Anda untuk mengizinkan koneksi VPS." -ForegroundColor Yellow
+          Write-Host "==========================================================================" -ForegroundColor Yellow
+
+          # Menunggu hingga IP Tailscale didapatkan setelah user melakukan login web
           $tsIP = $null
           $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              if ($tsIP) { $tsIP = $tsIP.Trim() }
-              Start-Sleep -Seconds 5
-              $retries++
+          # Memberikan waktu tunggu lebih lama (300 detik / 5 menit) agar Anda sempat mengklik link login web
+          while (-not $tsIP -and $retries -lt 60) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>$null
+              if ($tsIP) { 
+                  $tsIP = $tsIP.Trim() 
+              } else {
+                  Start-Sleep -Seconds 5
+                  $retries++
+              }
           }
           
           if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
+              Write-Error "Gagal mendapatkan IP Tailscale. Pastikan Anda sudah klik link login web sebelum batas waktu."
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
@@ -118,7 +91,6 @@ jobs:
               Write-Host "Nama Perangkat: VPS2022"
               Write-Host "Mode: Light Mode (Tema Terang)"
               Write-Host "Dibuat Oleh TT : @lah.katagwehmah (Redz/SiGanteng)"
-              Write-Host "Wallpaper: Aktif (Wallhaven-1pk58v)"
               Write-Host "Sisa waktu masa aktif runner: $seconds detik"
               Write-Host "------------------------------------------------"
               Start-Sleep -Seconds 60
