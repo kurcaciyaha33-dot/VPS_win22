@@ -1,0 +1,117 @@
+name: VPS Windows 2022 by : Redz
+
+on: 
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+    - name: Mengaktifkan Akses RDP (Remote Desktop)
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+
+    - name: Membuat User dan Password VPS
+      run: |
+        $Password = ConvertTo-SecureString "P@ssword1" -AsPlainText -Force
+        New-LocalUser "Redz" -Password $Password -Description "VPS Admin"
+        Add-LocalGroupMember -Group "Administrators" -Member "Redz"
+
+    - name: Mengubah Tema ke Mode Light (Terang)
+      run: |
+        # Mengatur Light Mode untuk Aplikasi dan Sistem Windows
+        $RegistryPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        if (-not (Test-Path $RegistryPath)) { New-Item -Path $RegistryPath -Force }
+        Set-ItemProperty -Path $RegistryPath -Name "AppsUseLightTheme" -Value 1 -Force
+        Set-ItemProperty -Path $RegistryPath -Name "SystemUsesLightTheme" -Value 1 -Force
+
+    - name: Mengunduh dan Memasang Custom Wallpaper
+      run: |
+        # Membuat folder penyimpanan jika belum ada
+        $WallpaperFolder = "C:\Wallpapers"
+        if (-not (Test-Path $WallpaperFolder)) { New-Item -ItemType Directory -Path $WallpaperFolder }
+        
+        # Link direct download gambar dari Wallhaven ID 1pk58v
+        $WallpaperUrl = "https://w.wallhaven.cc/full/1p/wallhaven-1pk58v.jpg"
+        $WallpaperPath = "$WallpaperFolder\vps_wallpaper.jpg"
+        
+        # Mengunduh Gambar
+        Invoke-WebRequest -Uri $WallpaperUrl -OutFile $WallpaperPath
+        
+        # Menerapkan Wallpaper via Registry untuk Default User dan System Profile
+        $Paths = @(
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\Background",
+            "HKU:\.DEFAULT\Control Panel\Desktop"
+        )
+        foreach ($p in $Paths) {
+            if (-not (Test-Path $p)) { New-Item -Path $p -Force }
+        }
+        
+        Set-ItemProperty -Path "HKU:\.DEFAULT\Control Panel\Desktop" -Name "Wallpaper" -Value $WallpaperPath -Force
+        
+        # Menerapkan kode refresh agar wallpaper langsung berubah saat user login
+        Add-Type -TypeDefinition @"
+        using System;
+        using System.Runtime.InteropServices;
+        public class Wallpaper {
+            [DllImport("user32.dll", CharSet = CharSet.Auto)]
+            public static extern int SystemParametersInfo(int uAction, int uParam, string lvParam, int fuWinIni);
+        }
+"@
+        [Wallpaper]::SystemParametersInfo(20, 0, $WallpaperPath, 3)
+
+    - name: Mengunduh dan Menginstal Tailscale
+      run: |
+        Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+        Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/qn" -Wait
+
+    - name: Establish Tailscale Connection
+      run: |
+        # Bring up Tailscale dengan nama host kustom VPS2022
+        & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=VPS2022-$env:GITHUB_RUN_ID --unattended
+        
+        # Wait for Tailscale to assign an IP
+        $tsIP = $null
+        $retries = 0
+        while (-not $tsIP -and $retries -lt 10) {
+            $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+            if ($tsIP) { $tsIP = $tsIP.Trim() }
+            Start-Sleep -Seconds 5
+            $retries++
+        }
+        
+        if (-not $tsIP) {
+            Write-Error "Tailscale IP not assigned. Exiting."
+            exit 1
+        }
+        echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+    - name: Menampilkan Informasi Login VPS
+      run: |
+        $IP = $env:TAILSCALE_IP
+        
+        Write-Host "==========================================" -ForegroundColor Cyan
+        Write-Host " ______________________________________ " -ForegroundColor Green
+        Write-Host "|                                      |" -ForegroundColor Green
+        Write-Host "|  IP   : $IP"                            -ForegroundColor Green
+        Write-Host "|  USER : Redz                         |" -ForegroundColor Green
+        Write-Host "|  PASS : P@ssword1                    |" -ForegroundColor Green
+        Write-Host "|______________________________________|" -ForegroundColor Green
+        Write-Host "==========================================" -ForegroundColor Cyan
+
+    - name: Menjaga VPS Tetap Aktif (6 Jam)
+      run: |
+        $seconds = 21600
+        while ($seconds -gt 0) {
+            clear
+            Write-Host "VPS Windows 2022 Berhasil Terhubung ke Tailnet!"
+            Write-Host "Nama Perangkat: VPS2022"
+            Write-Host "Mode: Light Mode (Tema Terang)"
+            Write-Host "Dibuat Oleh TT : @lah.katagwehmah (Redz/SiGanteng)"
+            Write-Host "Wallpaper: Aktif (Wallhaven-1pk58v)"
+            Write-Host "Sisa waktu masa aktif runner: $seconds detik"
+            Start-Sleep -Seconds 60
+            $seconds -= 60
+        }
