@@ -123,15 +123,4 @@ jobs:
               Write-Host "------------------------------------------------"
               Start-Sleep -Seconds 60
               $seconds -= 60
-          }        $seconds = 21600
-        while ($seconds -gt 0) {
-            clear
-            Write-Host "VPS Windows 2022 Berhasil Terhubung ke Tailnet!"
-            Write-Host "Nama Perangkat: VPS2022"
-            Write-Host "Mode: Light Mode (Tema Terang)"
-            Write-Host "Dibuat Oleh TT : @lah.katagwehmah (Redz/SiGanteng)"
-            Write-Host "Wallpaper: Aktif (Wallhaven-1pk58v)"
-            Write-Host "Sisa waktu masa aktif runner: $seconds detik"
-            Start-Sleep -Seconds 60
-            $seconds -= 60
-        }
+          }
