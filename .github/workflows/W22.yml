@@ -1,0 +1,102 @@
+name: Windows 2022 by Redzz
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: windows-2022
+    timeout-minutes: 3600
+
+    steps:
+      - name: Configure Core RDP Settings
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 2 -Force
+
+          Remove-NetFirewallRule -DisplayName "RDP-Tailscale" -ErrorAction SilentlyContinue
+          New-NetFirewallRule -DisplayName "RDP-Tailscale" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389
+
+          Restart-Service -Name TermService -Force
+
+      - name: Create RDP User with Custom Credentials
+        run: |
+          # Menggunakan password statis sesuai request
+          $password = "RedzSG123"
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Membuat user dengan nama 'Redzz'
+          New-LocalUser -Name "Redzz" -Password $securePass -AccountNeverExpires -Description "Tailscale RDP User"
+          Add-LocalGroupMember -Group "Administrators" -Member "Redzz"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Redzz"
+          
+          # Menyimpan password ke GITHUB_ENV agar bisa dipanggil di step akhir
+          "RDP_PASS=$password" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          
+          if (-not (Get-LocalUser -Name "Redzz")) {
+              Write-Error "Gagal membuat user baru."
+              exit 1
+          }
+
+      - name: Install Tailscale
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
+          
+          Start-Sleep -Seconds 5
+
+      - name: Establish Tailscale Connection
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-windows2022-${{ github.run_id }} --ephemeral=true --accept-dns=false
+          
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 12) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              if (-not $tsIP) {
+                  Start-Sleep -Seconds 5
+                  $retries++
+              }
+          }
+          
+          if (-not $tsIP) {
+              Write-Error "Tailscale gagal mendapatkan IP address."
+              exit 1
+          }
+          
+          "TAILSCALE_IP=$tsIP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify RDP Accessibility
+        run: |
+          $ip = $env:TAILSCALE_IP
+          Write-Host "Memverifikasi RDP pada IP: $ip"
+          
+          $testResult = Test-NetConnection -ComputerName $ip -Port 3389
+          if (-not $testResult.TcpTestSucceeded) {
+              Write-Error "Koneksi RDP internal via Port 3389 gagal!"
+              exit 1
+          }
+          Write-Host "Koneksi RDP Aktif dan Siap Digunakan!"
+
+      - name: Maintain Connection
+        run: |
+          Write-Host "`n=========================================="
+          Write-Host " KONEKSI RDP BERHASIL DIAKTIFKAN"
+          Write-Host "=========================================="
+          Write-Host "IP Address : $env:TAILSCALE_IP"
+          Write-Host "Username   : Redzz"
+          Write-Host "Password   : $env:RDP_PASS"
+          Write-Host "=========================================="
+          Write-Host "Gunakan aplikasi Remote Desktop (RDP) di PC Anda"
+          Write-Host "lalu masukkan detail di atas."
+          Write-Host "Tekan 'Cancel' pada Workflow GitHub untuk berhenti.`n"
+          
+          while ($true) {
+              Write-Host "[$(Get-Date)] Runner Tetap Aktif..."
+              Start-Sleep -Seconds 180
+          }
