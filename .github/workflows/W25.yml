@@ -1,11 +1,11 @@
-name: Windows 2022 by Redzz
+name: Windows 2025 by Redzz
 
 on:
   workflow_dispatch:
 
 jobs:
   secure-rdp:
-    runs-on: windows-2022
+    runs-on: windows-2025
     timeout-minutes: 3600
 
     steps:
