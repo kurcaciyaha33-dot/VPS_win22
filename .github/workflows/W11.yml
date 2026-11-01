@@ -75,62 +75,49 @@ jobs:
           & $tsPath version
 
 
-      - name: Tailscale Web Login Authentication
+
+      - name: Tailscale Authentication (Auth Key)
         shell: pwsh
-        timeout-minutes: 5
+        timeout-minutes: 2
+        env:
+          TS_AKEY: ${{ secrets.TS_AKEY }}
         run: |
           $tsPath = "$env:ProgramFiles\Tailscale\tailscale.exe"
 
+          if ([string]::IsNullOrWhiteSpace($env:TS_AKEY)) {
+              throw "GitHub Secret TS_AKEY belum dikonfigurasi."
+          }
+
           Write-Host "=========================================="
-          Write-Host "       TAILSCALE WEB AUTHENTICATION"
+          Write-Host "       TAILSCALE KEY AUTHENTICATION"
           Write-Host "=========================================="
 
-          Write-Host "Memulai koneksi Tailscale..."
+          Write-Host "Connecting to Tailscale..."
 
-          $output = & $tsPath up --hostname="gh-windows-arm-${{ github.run_id }}" --accept-dns=false 2>&1
+          & $tsPath up `
+              "--auth-key=$env:TS_AKEY" `
+              "--hostname=gh-windows-arm-${{ github.run_id }}" `
+              "--accept-dns=false"
 
-          foreach ($line in $output) {
-              Write-Host $line
+          if ($LASTEXITCODE -ne 0) {
+              throw "Tailscale authentication failed. Exit code: $LASTEXITCODE"
           }
 
-          $text = $output -join "`n"
-          $match = [regex]::Match($text, 'https://login\.tailscale\.com/[^\s]+')
+          Start-Sleep -Seconds 3
 
-          if ($match.Success) {
-              Write-Host ""
-              Write-Host "=========================================="
-              Write-Host "         LINK LOGIN TAILSCALE"
-              Write-Host "=========================================="
-              Write-Host $match.Value -ForegroundColor Cyan
-              Write-Host "=========================================="
-          }
-          else {
-              Write-Host "Tidak menemukan link login. Memeriksa status..."
-          }
-
-          Write-Host ""
-          Write-Host "Menunggu autentikasi Tailscale..."
-
-          $tsIP = $null
-
-          for ($i = 0; $i -lt 36; $i++) {
-              $tsIP = & $tsPath ip -4 2>$null | Select-Object -First 1
-
-              if ($tsIP) {
-                  break
-              }
-
-              Start-Sleep -Seconds 5
-          }
+          $tsIP = & $tsPath ip -4 2>$null | Select-Object -First 1
 
           if (-not $tsIP) {
-              throw "Login Tailscale gagal atau timeout."
+              throw "Tailscale IP address not found."
           }
 
           "TAILSCALE_IP=$tsIP" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-          Write-Host "Tailscale berhasil terhubung!"
-          Write-Host "IP: $tsIP"
+          Write-Host "=========================================="
+          Write-Host "       TAILSCALE CONNECTED"
+          Write-Host "=========================================="
+          Write-Host "Tailscale IP: $tsIP"
+
 
       - name: Verify RDP Accessibility
         shell: pwsh
