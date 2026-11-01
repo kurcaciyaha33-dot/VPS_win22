@@ -74,70 +74,63 @@ jobs:
           Write-Host "Tailscale installed successfully."
           & $tsPath version
 
+
       - name: Tailscale Web Login Authentication
         shell: pwsh
+        timeout-minutes: 5
         run: |
-          Write-Host "=========================================================="
-          Write-Host " SILAKAN KLIK LINK DI BAWAH UNTUK LOGIN KE TAILSCALE"
-          Write-Host "=========================================================="
-
           $tsPath = "$env:ProgramFiles\Tailscale\tailscale.exe"
 
-          $processInfo = New-Object System.Diagnostics.ProcessStartInfo
-          $processInfo.FileName = $tsPath
-          $processInfo.Arguments = "up --hostname=gh-windows2022-${{ github.run_id }} --accept-dns=false"
-          $processInfo.RedirectStandardOutput = $true
-          $processInfo.RedirectStandardError = $true
-          $processInfo.UseShellExecute = $false
-          $processInfo.CreateNoWindow = $true
+          Write-Host "=========================================="
+          Write-Host "       TAILSCALE WEB AUTHENTICATION"
+          Write-Host "=========================================="
 
-          $process = New-Object System.Diagnostics.Process
-          $process.StartInfo = $processInfo
-          $process.Start() | Out-Null
+          Write-Host "Memulai koneksi Tailscale..."
 
-          $linkFound = $false
-          $timeout = 0
+          $output = & $tsPath up --hostname="gh-windows-arm-${{ github.run_id }}" --accept-dns=false 2>&1
 
-          while (-not $linkFound -and $timeout -lt 12) {
-              if ($process.HasExited) {
+          foreach ($line in $output) {
+              Write-Host $line
+          }
+
+          $text = $output -join "`n"
+          $match = [regex]::Match($text, 'https://login\.tailscale\.com/[^\s]+')
+
+          if ($match.Success) {
+              Write-Host ""
+              Write-Host "=========================================="
+              Write-Host "         LINK LOGIN TAILSCALE"
+              Write-Host "=========================================="
+              Write-Host $match.Value -ForegroundColor Cyan
+              Write-Host "=========================================="
+          }
+          else {
+              Write-Host "Tidak menemukan link login. Memeriksa status..."
+          }
+
+          Write-Host ""
+          Write-Host "Menunggu autentikasi Tailscale..."
+
+          $tsIP = $null
+
+          for ($i = 0; $i -lt 36; $i++) {
+              $tsIP = & $tsPath ip -4 2>$null | Select-Object -First 1
+
+              if ($tsIP) {
                   break
               }
 
-              $output = $process.StandardError.ReadLine()
-
-              if ($output -like "*https://login.tailscale.com/*") {
-                  Write-Host "`nLINK LOGIN ANDA:"
-                  Write-Host "--------------------------------------------------------"
-                  Write-Host $output -ForegroundColor Cyan
-                  Write-Host "--------------------------------------------------------`n"
-                  $linkFound = $true
-              }
-
-              Start-Sleep -Seconds 2
-              $timeout++
-          }
-
-          Write-Host "Menunggu Anda menyelesaikan login di browser..."
-
-          $tsIP = $null
-          $retries = 0
-
-          while (-not $tsIP -and $retries -lt 36) {
-              $tsIP = & $tsPath ip -4 2>$null | Select-Object -First 1
-
-              if (-not $tsIP) {
-                  Start-Sleep -Seconds 5
-                  $retries++
-              }
+              Start-Sleep -Seconds 5
           }
 
           if (-not $tsIP) {
-              throw "Waktu login habis atau login Tailscale belum selesai."
+              throw "Login Tailscale gagal atau timeout."
           }
 
-          "TAILSCALE_IP=$tsIP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TAILSCALE_IP=$tsIP" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-          Write-Host "Login Web Berhasil! Tailscale IP: $tsIP"
+          Write-Host "Tailscale berhasil terhubung!"
+          Write-Host "IP: $tsIP"
 
       - name: Verify RDP Accessibility
         shell: pwsh
